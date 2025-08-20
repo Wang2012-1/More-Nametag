@@ -202,9 +202,3 @@ nature 自然色系
 
 本项目采用 MIT 许可证 - 详情参见 LICENSE 文件
 
-
-
-📧 如有问题请联系：your.email@example.com  
-
-🌐 项目地址：https://github.com/yourname/more-nametag
-
