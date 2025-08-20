@@ -1,0 +1,15 @@
+{
+  "id": "more_nametag",
+  "version": "1.0.0",
+  "name": "更多称号",
+  "description": "允许玩家自定义带有颜色和渐变效果的称号",
+  "author": ["Future"],
+  "link": "https://github.com/Wang2012-1/More-Nametag",
+  "dependencies": {
+    "mcdreforged": ">=2.0.0"
+  },
+  "resources": [
+    "config/more_nametag.json",
+    "config/nametag_data.json"
+  ]
+}
