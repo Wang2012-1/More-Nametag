@@ -1,0 +1,5 @@
+{
+  "allowed_colors": ["red", "blue", "green", "gradient"],
+  "max_length": 16,
+  "enable_gradient": true
+}
