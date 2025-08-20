@@ -75,7 +75,6 @@ def build_help():
         '可用颜色：', ', '.join(COLOR_CODES.keys())
     )
 
-...
 def on_load(server: PluginServerInterface, prev_module):
     server.register_help_message('!!nametag', '自定义玩家称号')
     server.register_command(

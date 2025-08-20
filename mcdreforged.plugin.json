@@ -1,0 +1,25 @@
+{
+  "id": "more_nametag",
+  "version": "1.0.0",
+  "name": "更多称号",
+  "authors": [
+    {
+      "name": "Future",
+      "link": "https://github.com/Wang2012-1"
+    }
+  ],
+  "repository": "https://github.com/Wang2012-1/More-Nametag",
+  "branch": "main",
+  "labels": ["tool", "management"],
+  "introduction": {
+    "zh_cn": "README_CN.md",
+    "en_us": "README.md"
+  },
+  "dependencies": {
+    "mcdreforged": ">=2.0.0"
+  },
+  "resources": [
+    "config/more_nametag.json",
+    "config/nametag_data.json"
+  ]
+}
