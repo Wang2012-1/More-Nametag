@@ -1,43 +1,27 @@
 from mcdreforged.api.decorator import new_thread
-from mcdreforged.api.command import Literal
+from mcdreforged.api.command import Literal, Text
 from mcdreforged.api.rtext import RTextList
-from mcdreforged.api.types import PluginServerInterface, ServerInterface, Info,CommandSource, PlayerCommandSource
+from mcdreforged.api.types import PluginServerInterface, ServerInterface, Info, CommandSource, PlayerCommandSource
 from typing import List, Dict, Optional
 import json
 import os
 import re
-import math
 
 # 常量定义
 CONFIG_PATH = os.path.join('config', 'more_nametag.json')
 DATA_PATH = os.path.join('config', 'nametag_data.json')
 
-# 颜色代码映射
-COLOR_MAP = {
-    'black': '§0', 'dark_blue': '§1', 'dark_green': '§2',
-    'dark_aqua': '§3', 'dark_red': '§4', 'dark_purple': '§5',
-    'gold': '§6', 'gray': '§7', 'dark_gray': '§8',
-    'blue': '§9', 'green': '§a', 'aqua': '§b',
-    'red': '§c', 'light_purple': '§d', 'yellow': '§e',
-    'white': '§f', 'reset': '§r'
-}
-
-# 渐变颜色预设
-GRADIENT_PRESETS = {
-    'rainbow': ['§c', '§6', '§e', '§a', '§b', '§9', '§d'],
-    'fire': ['§c', '§6', '§e'],
-    'ice': ['§b', '§9', '§f'],
-    'nature': ['§2', '§a', '§e']
-}
-
 class Config:
     """插件配置类"""
     def __init__(self):
-        self.allowed_colors = ['red', 'blue', 'green', 'gradient']
+        self.admin_permission_level = 3
         self.max_length = 16
-        self.enable_gradient = True
-        self.gradient_preset = 'rainbow'
-    
+        self.presets = {
+            'vip': '§6[VIP] §f{player}',
+            'mod': '§2[MOD] §f{player}',
+            'admin': '§4[ADMIN] §f{player}'
+        }
+
     @classmethod
     def load(cls):
         """加载配置文件"""
@@ -47,10 +31,9 @@ class Config:
             with open(CONFIG_PATH, 'r', encoding='utf8') as f:
                 data = json.load(f)
                 config = cls()
-                config.allowed_colors = data.get('allowed_colors', config.allowed_colors)
+                config.admin_permission_level = data.get('admin_permission_level', config.admin_permission_level)
                 config.max_length = data.get('max_length', config.max_length)
-                config.enable_gradient = data.get('enable_gradient', config.enable_gradient)
-                config.gradient_preset = data.get('gradient_preset', config.gradient_preset)
+                config.presets = data.get('presets', config.presets)
                 return config
         except:
             return cls()
@@ -60,10 +43,9 @@ class Config:
         os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
         with open(CONFIG_PATH, 'w', encoding='utf8') as f:
             json.dump({
-                'allowed_colors': self.allowed_colors,
+                'admin_permission_level': self.admin_permission_level,
                 'max_length': self.max_length,
-                'enable_gradient': self.enable_gradient,
-                'gradient_preset': self.gradient_preset
+                'presets': self.presets
             }, f, indent=2)
 
 class NameTagManager:
@@ -95,47 +77,23 @@ class NameTagManager:
         """获取玩家称号"""
         return self.data.get(player)
 
-def convert_to_gradient(text, gradient_colors=None):
-    """
-    改进版渐变文本转换
-    :param text: 包含<gradient>标签的文本
-    :param gradient_colors: 自定义颜色序列
-    :return: 转换后的带颜色代码文本
-    """
-    if gradient_colors is None:
-        gradient_colors = GRADIENT_PRESETS.get(config.gradient_preset, GRADIENT_PRESETS['rainbow'])
-    
-    def process_gradient(match):
-        content = match.group(1)
-        if not content:
-            return ''
-        
-        result = []
-        color_count = len(gradient_colors)
-        
-        for i, char in enumerate(content):
-            pos = i / max(1, len(content) - 1)
-            color_index = min(int(pos * color_count), color_count - 1)
-            color = gradient_colors[color_index]
-            result.append(f'{color}{char}')
-        
-        return ''.join(result)
-    
-    # 处理标准渐变标签
-    processed = re.sub(r'<gradient>(.*?)</gradient>', process_gradient, text)
-    # 处理简写格式
-    processed = re.sub(r'&g([^\s]+)', r'<gradient>\1</gradient>', processed)
-    
-    return processed
+    def remove_tag(self, player):
+        """移除玩家称号"""
+        if player in self.data:
+            del self.data[player]
+            self.save()
+            return True
+        return False
 
 def build_help_message():
     """构建帮助消息"""
     return RTextList(
-        '!!nametag set <内容> - 设置称号（支持&g开头自动渐变）\n',
-        '!!nametag color <颜色> - 选择颜色\n',
-        '!!nametag preset <预设名> - 设置渐变预设\n',
-        '可用颜色：', ', '.join(COLOR_MAP.keys()) + '\n',
-        '渐变预设：', ', '.join(GRADIENT_PRESETS.keys())
+        '!!nametag set <玩家> <称号> - 设置玩家称号\n',
+        '!!nametag remove <玩家> - 移除玩家称号\n',
+        '!!nametag preset <玩家> <预设> - 应用预设称号\n',
+        '!!nametag preset list - 列出所有预设\n',
+        '!!nametag preset add <名称> <内容> - 添加新预设 (需要level 4)\n',
+        '!!nametag preset remove <名称> - 删除预设 (需要level 4)'
     )
 
 # 全局配置实例
@@ -147,145 +105,140 @@ def on_player_joined(server: ServerInterface, player: str, info: Info):
         server.say(RTextList(f'§a玩家 {player} 已加载称号：', tag))
         server.execute(f'team modify nametag suffix {{"text":" {tag}"}}')
 
-def on_player_left(server: ServerInterface, player: str):
-    """玩家离开事件处理（示例）"""
-    if config.debug_mode:
-        server.logger.info(f'玩家 {player} 已离开服务器')
-
-def on_server_start(server: PluginServerInterface):
-    """服务器启动事件处理（示例）"""
-    server.logger.info('称号插件已就绪')
-
 def on_load(server: PluginServerInterface, prev_module):
     """插件加载入口"""
     NameTagManager().load()
-    
+
     # 注册帮助消息
-    server.register_help_message('!!nametag', '自定义玩家称号')
-    
-    # 注册命令（使用手动参数解析）
-    server.register_command(
-        Literal('!!nametag').
-        then(Literal('set').runs(set_tag_command)).
-        then(Literal('color').runs(set_color_command)).
-        then(Literal('preset').runs(set_preset_command)).
-        then(Literal('preview').runs(preview_command))
+    server.register_help_message('!!nametag', '玩家称号管理')
+
+    # 构建命令树
+    nametag_command = Literal('!!nametag').requires(
+        lambda src: src.has_permission(config.admin_permission_level)
+    ).runs(lambda src: src.reply(build_help_message()))
+
+    # 设置称号命令
+    set_command = Literal('set').then(
+        Text('player').then(
+            Text('tag').runs(set_tag_command)
+        )
     )
-    
-    # 手动注册事件监听器
-    server.register_event_listener(
-        'mcdr.player_joined',  # 等同于LiteralEvent.PLAYER_JOINED
-        on_player_joined,
-        priority=1000
+
+    # 移除称号命令
+    remove_command = Literal('remove').then(
+        Text('player').runs(remove_tag_command)
     )
-    
-    # 注册其他事件示例
-    server.register_event_listener(
-        'mcdr.player_left',  # 等同于LiteralEvent.PLAYER_LEFT
-        on_player_left,
-        priority=500
+
+    # 预设管理命令
+    preset_command = Literal('preset').then(
+        Text('player').then(
+            Text('preset_name').runs(preset_apply_command)
+        )
+    ).then(
+        Literal('list').runs(preset_list_command)
+    ).then(
+        Literal('add').requires(
+            lambda src: src.has_permission(4)
+        ).then(
+            Text('preset_name').then(
+                Text('preset_content').runs(preset_add_command)
+            )
+        )
+    ).then(
+        Literal('remove').requires(
+            lambda src: src.has_permission(4)
+        ).then(
+            Text('preset_name').runs(preset_remove_command)
+        )
     )
-    
+
+    # 注册主命令
+    nametag_command.then(set_command).then(remove_command).then(preset_command)
+    server.register_command(nametag_command)
+
+    # 注册玩家加入事件
     server.register_event_listener(
-        'mcdr.server_startup',  # 等同于ServerEvent.SERVER_STARTUP
-        on_server_start,
-        priority=100
+        'mcdr.player_joined',
+        on_player_joined
     )
 
 @new_thread
-def set_tag_command(source: CommandSource):
-    """处理设置称号命令"""
-    if not isinstance(source, PlayerCommandSource):
-        source.reply('§c只有玩家可以使用此命令')
-        return
-    
-    # 手动解析命令参数
-    args = source.get_info().content.split()
-    if len(args) < 3:
-        source.reply('§c用法: !!nametag set <称号内容>')
-        return
-    
-    player = source.player
-    raw_tag = ' '.join(args[2:])
-    processed_tag = raw_tag.replace('&', '§')
-    
-    if '§g' in processed_tag:
-        if not config.enable_gradient:
-            source.reply('§c渐变功能已被管理员禁用')
-            return
-        processed_tag = convert_to_gradient(processed_tag.replace('§g', '<gradient>') + '</gradient>')
-    
-    if len(processed_tag) > config.max_length:
+def set_tag_command(source: CommandSource, ctx: dict):
+    """设置玩家称号"""
+    player = ctx['player']
+    tag = ctx['tag']
+
+    # 验证称号长度
+    if len(tag) > config.max_length:
         source.reply(f'§c称号过长（最大{config.max_length}字符）')
         return
-    
-    NameTagManager().set_tag(player, processed_tag)
-    source.reply(RTextList('§a称号已更新：', processed_tag))
+
+    NameTagManager().set_tag(player, tag)
+    source.reply(RTextList(
+        f'§a已为玩家 {player} 设置称号：',
+        tag
+    ))
 
 @new_thread
-def set_color_command(source: CommandSource):
-    """处理颜色设置命令"""
-    if not isinstance(source, PlayerCommandSource):
-        source.reply('§c只有玩家可以使用此命令')
-        return
-    
-    # 手动解析命令参数
-    args = source.get_info().content.split()
-    if len(args) < 3:
-        source.reply('§c用法: !!nametag color <颜色>')
-        return
-    
-    color = args[2]
-    if color not in config.allowed_colors:
-        source.reply(f'§c不支持的颜色，可用颜色：{", ".join(config.allowed_colors)}')
-        return
-    
-    player = source.player
-    manager = NameTagManager()
-    current_tag = manager.get_tag(player) or ''
-    clean_tag = re.sub(r'§[0-9a-f]', '', current_tag)
-    new_tag = COLOR_MAP.get(color, '') + clean_tag
-    
-    if len(new_tag) > config.max_length:
-        source.reply(f'§c添加颜色后超过长度限制（最大{config.max_length}字符）')
-        return
-    
-    manager.set_tag(player, new_tag)
-    source.reply(RTextList('§a颜色已应用！当前称号：', new_tag))
-
-@new_thread
-def set_preset_command(source: CommandSource):
-    """设置渐变预设"""
-    if not isinstance(source, PlayerCommandSource):
-        source.reply('§c只有玩家可以使用此命令')
-        return
-    
-    # 手动解析命令参数
-    args = source.get_info().content.split()
-    if len(args) < 3:
-        source.reply('§c用法: !!nametag preset <预设名>')
-        return
-    
-    preset = args[2]
-    if preset not in GRADIENT_PRESETS:
-        source.reply(f'§c无效预设，可用预设：{", ".join(GRADIENT_PRESETS.keys())}')
-        return
-    
-    config.gradient_preset = preset
-    config.save()
-    source.reply(f'§a渐变预设已设置为：{preset}')
-
-@new_thread
-def preview_command(source: CommandSource):
-    """预览称号效果"""
-    if not isinstance(source, PlayerCommandSource):
-        source.reply('§c只有玩家可以预览称号')
-        return
-    
-    sample_text = '示例称号'
-    if config.enable_gradient:
-        preview_text = convert_to_gradient(f'<gradient>{sample_text}</gradient>')
+def remove_tag_command(source: CommandSource, ctx: dict):
+    """移除玩家称号"""
+    player = ctx['player']
+    if NameTagManager().remove_tag(player):
+        source.reply(f'§a已移除玩家 {player} 的称号')
     else:
-        preview_text = sample_text
+        source.reply(f'§c玩家 {player} 没有设置称号')
+
+@new_thread
+def preset_apply_command(source: CommandSource, ctx: dict):
+    """应用预设称号"""
+    player = ctx['player']
+    preset_name = ctx['preset_name']
+
+    if preset_name not in config.presets:
+        source.reply(f'§c无效预设，可用预设：{", ".join(config.presets.keys())}')
+        return
+
+    tag = config.presets[preset_name].replace('{player}', player)
+    NameTagManager().set_tag(player, tag)
+    source.reply(RTextList(
+        f'§a已为玩家 {player} 应用预设 {preset_name}：',
+        tag
+    ))
+
+@new_thread
+def preset_list_command(source: CommandSource):
+    """列出所有预设"""
+    if not config.presets:
+        source.reply('§c当前没有预设称号')
+        return
+
+    msg = RTextList('§a可用预设称号：\n')
+    for name, template in config.presets.items():
+        msg.append(f'§6{name}§f: {template}\n')
+    source.reply(msg)
+
+@new_thread
+def preset_add_command(source: CommandSource, ctx: dict):
+    """添加新预设"""
+    preset_name = ctx['preset_name']
+    preset_content = ctx['preset_content']
+
+    if preset_name in config.presets:
+        source.reply(f'§c预设 {preset_name} 已存在')
+        return
+
+    config.presets[preset_name] = preset_content
+    config.save()
+    source.reply(f'§a已添加预设 {preset_name}：{preset_content}')
+
+@new_thread
+def preset_remove_command(source: CommandSource, ctx: dict):
+    """删除预设"""
+    preset_name = ctx['preset_name']
+    if preset_name not in config.presets:
+        source.reply(f'§c预设 {preset_name} 不存在')
+        return
     
-    source.reply(RTextList('§7[预览] §o', preview_text))
+    del config.presets[preset_name]
+    config.save()
+    source.reply(f'§a已删除预设 {preset_name}')
